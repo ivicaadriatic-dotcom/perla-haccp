@@ -2822,7 +2822,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.5.1';
+const APP_VER = '1.5.2';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3539,7 +3539,7 @@ function openModal(eyebrow, title, bodyFn, opt={}){
   ov.addEventListener('input', onModalInput); ov.addEventListener('change', onModalInput);
   ov.addEventListener('click', onModalClick);
   ov.addEventListener('mousedown', e=>{ ov._down = e.target===ov; });
-  ov.addEventListener('mouseup', e=>{ if(ov._down && e.target===ov) closeModal(); });
+  ov.addEventListener('mouseup', e=>{ if(ov._down && e.target===ov){ closeModal(); backToVisit(); } });
 }
 function renderBody(){ const b=$('#m-body'); if(!b) return; const st=b.scrollTop; b.innerHTML=M.bodyFn(); b.scrollTop=st; }
 function closeModal(){ const o=$('#m-ov'); if(o){ o.remove(); document.body.style.overflow=''; } }
@@ -3567,7 +3567,8 @@ function lastPrimItem(naziv){
 async function onModalClick(e){
   const b=e.target.closest('[data-a]'); if(!b) return;
   const a=b.dataset.a, r=M.rec;
-  if(a==='close'){ closeModal(); return; }
+  if(a==='close'){ closeModal(); backToVisit(); return; }
+  if(a==='vdoc'){ visitDoc(b.dataset.t); return; }
   if(a==='chip'||a==='tri'){ const cur=getP(r,b.dataset.b); setP(r,b.dataset.b, (a==='tri'&&cur===b.dataset.val)?'':b.dataset.val); renderBody(); renderHero(); return; }
   if(a==='add'){ const l=b.dataset.list; const tpl = l==='entries' ? {ccp:r.entries.at(-1)?.ccp||'CCP1', granica:r.entries.at(-1)?.granica||'', sat:nowTime(), vrijednost:'', rezultat:'ok', mjera:''}
       : r.type==='prim' ? {naziv:'',lot:'',rok:'',kolicina:'',temp:'',stanje:'Ispravno',coa:''} : {naziv:'',lot:'',rok:'',kolicina:'',napomena:''};
@@ -3580,7 +3581,7 @@ async function onModalClick(e){
   if(a==='del'){
     if(M.kind==='custom'){ const f=M.del; if(await ask('Obrisati stavku?','Stavka će biti uklonjena iz HACCP plana.','Obriši',true)){ f(); closeModal(); toast('Obrisano'); render(); } return; }
     const kol=M.kol; const ok=await ask('Obrisati zapis?','Zapis će biti trajno uklonjen s ovog uređaja i iz sinkronizacije.','Obriši',true);
-    if(ok){ removeRec(kol, r.id); closeModal(); toast('Zapis obrisan'); render(); } return; }
+    if(ok){ removeRec(kol, r.id); closeModal(); toast('Zapis obrisan'); render(); backToVisit(); } return; }
   if(a==='print'||a==='pdf'){ const c=clone(r); c.status=docStatus(c); printDoc(c, a==='pdf'?'pdf':''); return; }
   if(a==='gpsHere'){ b.disabled=true; const g=await getGps(); b.disabled=false; if(g.err) return toast(g.err,'err'); M.rec.gps=`${g.lat}, ${g.lng}`; renderBody(); toast(`Lokacija upisana (±${g.acc} m)`); return; }
   if(a==='save') saveModal();
@@ -3613,7 +3614,7 @@ function saveModal(){
     if(M.kol==='strojevi'){ if(DB.strojevi.some(x=>x.oznaka===r.oznaka && String(x.id)!==String(r.id))) return toast(`Oznaka ${r.oznaka} već postoji`,'err'); if(M.isNew && !r.datum_instalacije) r.datum_instalacije=isoDate(); }
     upsert(M.kol, r); toast(`${def.one} spremljen`); if(M.kol==='strojevi') updateAktUI();
   }
-  closeModal(); render();
+  closeModal(); render(); backToVisit();
 }
 
 /* ----- prihodi ----- */
@@ -3996,10 +3997,29 @@ function openVisit(id, fresh){
       ${fr('clock','#ff9500','Vrijeme', `<span style="color:var(--muted)">${fDate(r.date)} u ${esc(r.time||'')}</span>`)}
       ${fr('pin', v.c==='ok'?'#34c759':v.c==='bad'?'#ff3b30':'#ff9500', 'Lokacija', ml?`<a href="${ml}" target="_blank" rel="noopener" style="color:var(--blue)">Karta</a>`:'', esc(v.t)+(r.gps&&!r.gps.err?` · ${r.gps.lat}, ${r.gps.lng}`:''))}
       ${fr('install','#8e8e93','Uređaj', `<span style="color:var(--muted)">${esc(r.uredaj||'')}</span>`, esc(r.korisnik||''))}
-    </div>`+sec('Napomena')+`<div class="grp">${frCol('note','#8e8e93','Napomena', vTa('napomena','npr. aparat napunjen, uočen kvar…'))}</div>
+    </div>`+sec('Dnevne evidencije')+`<div class="grp">${dnevneRows(r)}</div>
+    <div class="hint">Dodirnite obrazac za unos – nakon spremanja vraćate se na ovaj popis.</div>`+
+    sec('Napomena')+`<div class="grp">${frCol('note','#8e8e93','Napomena', vTa('napomena','npr. aparat napunjen, uočen kvar…'))}</div>
     <div class="hint">Vrijeme, uređaj i GPS bilježe se automatski i ne mogu se mijenjati.</div>`; }, {del:!fresh});
   $('#m-ov [data-a="save"]').textContent = fresh ? 'Potvrdi dolazak' : 'Spremi';
 }
+/* --- 4 dnevne evidencije unutar prozora dolaska --- */
+let VISIT_BACK = null;
+function dnevniZapis(t, date, stroj){ return sortDocs(DB[t]).find(r=>r.date===date && (r.stroj===stroj || (!r.stroj && !multi()))); }
+function dnevneRows(r){
+  return Object.keys(TIP).filter(t=>TIP[t].daily).map(t=>{
+    const d = dnevniZapis(t, r.date, r.stroj); const st = d ? (d.status||docStatus(d)) : null;
+    return `<div class="fr" style="cursor:pointer" data-a="vdoc" data-t="${t}">${icoBox(TIP[t].ic, TIP[t].c)}
+      <div class="lb">${TIP[t].n}<small>${d?'Uneseno · '+STATUS[st]:'Nije uneseno'}</small></div>${d?pill(st):''}${ic('chev')}</div>`;
+  }).join('');
+}
+function visitDoc(t){
+  const r = M.rec, cur = byId('posjeti', r.id);
+  if(cur){ upsert('posjeti', Object.assign({}, cur, {djelatnik:r.djelatnik, napomena:r.napomena})); lsSet('djelatnik', r.djelatnik); }
+  VISIT_BACK = r.id; const date=r.date, stroj=r.stroj;
+  closeModal(); setTimeout(()=>openToday(t, date, stroj), 60);
+}
+function backToVisit(){ const id=VISIT_BACK; VISIT_BACK=null; if(id && byId('posjeti', id)) setTimeout(()=>openVisit(id), 60); }
 function openVisitManual(){
   const o = AKT!=='all' ? AKT : aktivni()[0]?.oznaka; if(!o) return toast('Nema aparata u registru','err');
   const now=new Date();
