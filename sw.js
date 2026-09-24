@@ -1,5 +1,5 @@
 /* Perla Notte HACCP – service worker (rad bez interneta) */
-const CACHE = 'perla-haccp-v1.5.2';
+const CACHE = 'perla-haccp-v1.5.3';
 const SHELL = ['./', './index.html', './manifest.json',
   './icons/icon-192x192.png', './icons/icon-512x512.png', './icons/maskable-192.png', './icons/maskable-512.png',
   './icons/apple-touch-icon.png', './icons/favicon-64.png', './icons/logo-wide.png'];

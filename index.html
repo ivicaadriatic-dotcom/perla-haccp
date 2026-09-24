@@ -2822,7 +2822,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.5.2';
+const APP_VER = '1.5.3';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3260,6 +3260,18 @@ function markAllDirty(){ KOL.forEach(k=>DB[k].forEach(r=>DIRTY[k+'|'+r.id]=Date.
    PRIJAVA — Supabase račun (e-mail + lozinka), kao u ostalim aplikacijama
    ========================================================= */
 const DEFAULT_EMAIL = 'ivica.adriatic@gmail.com';
+/* --- voditelj vs. djelatnik: djelatnika šaljemo u terensku aplikaciju --- */
+const ADMINI = ['ivica.adriatic@gmail.com'];
+const TEREN_URL = 'https://ivicaadriatic-dotcom.github.io/perla-teren/';
+const jeAdmin = e => ADMINI.includes(String(e||'').trim().toLowerCase());
+function preusmjeriTeren(){
+  if(!AUTH || jeAdmin(AUTH.email)) return false;
+  const pv = lsGet('pendingVisit', null);
+  const a = ((typeof routeParam==='function') ? routeParam() : null) || (pv && Date.now()-pv.ts < 30*60000 ? pv.o : null);
+  lsSet('pendingVisit', null);
+  location.replace(TEREN_URL + '#' + (a ? '?a='+encodeURIComponent(a) : ''));
+  return true;
+}
 const LOCAL_USERS = { 'ivica.adriatic@gmail.com': 'f18e31c9fe6057951056fbe95d209e810cff8e4b09516f33f0623fd59efb9d10' };   // SHA-256('perla-haccp|' + lozinka) – lozinka nije zapisana u kodu
 async function sha256hex(t){ const b=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
 let AUTH = lsGet('auth', null);        // {access_token, refresh_token, expires_at, email}
@@ -3345,6 +3357,7 @@ function showLogin(msg){
     }
     if(!ok){ err.textContent = cloudErr || 'Pogrešan e-mail ili lozinka'; b.disabled=false; b.textContent='Prijavi se'; return; }
     lsSet('auth', AUTH); lsSet('lastEmail', email);
+    if(preusmjeriTeren()) return;
     if(cloud){ setSync('busy','Povezivanje…'); syncNow(); } else setSync('local', navigator.onLine?'Samo na ovom uređaju':'Izvan mreže');
     $('#lgPass').value='';
     hideLogin(); toast('Prijavljeni ste kao '+email);
@@ -4797,10 +4810,14 @@ function loadLogo(file){
 
 /* ---------- pokretanje ---------- */
 async function init(){
+  if(preusmjeriTeren()) return;
   applyTheme(); applyWidth(); buildShell();
   await loadDB(); applyBrand();
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{ applyTheme(); render(); });
-  const takeParam=()=>{ const a=routeParam(); if(a){ setAkt(a); history.replaceState(null,'',location.pathname+'#/'+route()); if(DB.strojevi.some(s=>s.oznaka===a)){ if(AUTH) setTimeout(()=>recordVisit(a), 400); else { PENDING_VISIT=a; lsSet('pendingVisit',{o:a, ts:Date.now()}); } } } };
+  const takeParam=()=>{ const a=routeParam(); if(!a) return;
+    setAkt(a); history.replaceState(null,'',location.pathname+'#/'+route());
+    if(!AUTH){ PENDING_VISIT=a; lsSet('pendingVisit',{o:a, ts:Date.now()}); return; }   // zapamti do prijave
+    if(DB.strojevi.some(s=>s.oznaka===a)) setTimeout(()=>recordVisit(a), 400); };
   takeParam();
   addEventListener('hashchange', ()=>{ closeModal(); RQ.q=''; takeParam(); render(); scrollTo(0,0); });
   addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
