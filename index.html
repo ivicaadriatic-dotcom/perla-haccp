@@ -2822,7 +2822,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.5.3';
+const APP_VER = '1.5.4';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3690,11 +3690,12 @@ const REG = {
             ['Opis proizvoda (HACCP)',[['rok','Rok trajanja','cal'],['uvjeti','Uvjeti čuvanja','therm'],['alergeni','Alergeni','alert'],['aw','aw vrijednost','drop'],['ph','pH vrijednost','flask'],['namjena','Namjena','user'],['sastav','Sastav','doc','textarea']]]],
     cols:[['Naziv','naziv'],['Kategorija','kategorija'],['Dobavljač','dobavljac'],['Alergeni','alergeni']]},
   strojevi:{n:'Vending aparati', one:'Aparat', ic:'machine', c:'#ff9500',
-    title:r=>`${r.oznaka||''} · ${r.naziv_lokacije||''}`, sub:r=>[r.model,r.adresa].filter(Boolean).join(' · '), badge:r=>r.status||'',
+    title:r=>`${r.oznaka||''} · ${r.naziv_lokacije||''}`, sub:r=>[r.model,r.isu?'ISU '+r.isu:'',r.adresa].filter(Boolean).join(' · '), badge:r=>r.status||'',
     groups:[['Aparat',[['oznaka','Oznaka','hash'],['model','Model','machine'],['vrsta','Vrsta','tag'],['serijski_br','Serijski broj','barcode'],['vlasnik','Vlasnik','building'],['status','Status','check','select',()=>['Aktivan','Na servisu','Neaktivan']]]],
+            ['Fiskalizacija',[['isu','ISU – oznaka uređaja','hash'],['posl_prostor','Oznaka poslovnog prostora','invoice']]],
             ['Lokacija',[['naziv_lokacije','Naziv lokacije','pin'],['naziv_prostora','Prostor / kat','building'],['adresa','Adresa','pin'],['adresa_lokacije','Adresa lokacije','pin'],['grad','Grad','globe'],['gps','GPS (širina, dužina)','pin']]],
             ['Održavanje',[['datum_instalacije','Datum instalacije','cal','date'],['datum_servis','Zadnji servis','cal','date'],['napomena','Napomena','note','textarea']]]],
-    cols:[['Oznaka','oznaka'],['Lokacija',r=>[r.naziv_lokacije,r.naziv_prostora].filter(Boolean).join(' – ')],['Model','model'],['Status','status']]},
+    cols:[['Oznaka','oznaka'],['Lokacija',r=>[r.naziv_lokacije,r.naziv_prostora].filter(Boolean).join(' – ')],['Model','model'],['ISU','isu'],['Posl. prostor','posl_prostor'],['Status','status']]},
   plan_cdez:{n:'Plan čišćenja', one:'Stavka plana', ic:'spark', c:'#32ade6',
     title:r=>r.zona, sub:r=>[r.uces,r.sr].filter(Boolean).join(' · '), badge:r=>r.odg||'',
     groups:[['Zona',[['zona','Zona / oprema','pin'],['uces','Učestalost','clock','select',()=>UCES],['odg','Odgovorna osoba','user']]],
