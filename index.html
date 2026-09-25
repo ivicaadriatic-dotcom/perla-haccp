@@ -2822,7 +2822,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.5.4';
+const APP_VER = '1.5.5';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3181,6 +3181,7 @@ function recFor(key){
 async function syncNow(manual){
   if(typeof AUTH==='undefined' || !AUTH || !AUTH.refresh_token || !SB.url || !SB.key){ setSync('local','Samo na ovom uređaju'); return false; }
   if(syncing) return; if(!navigator.onLine){ setSync('err','Izvan mreže – čeka'); return false; }
+  try{ rtKick(); }catch(e){}
   syncing=true; setSync('busy','Sinkronizacija…');
   try{
     if(!await authFresh()) throw new Error(navigator.onLine?'Prijava nije valjana':'Izvan mreže');
@@ -3217,8 +3218,8 @@ async function syncNow(manual){
     }
     lsSet('lastPull', last); saveDB();
     if(!lsGet('migOld', false)){ const n = await migrateOldCloud(); if(n>0){ changed+=n; lsSet('migOld', true); setTimeout(()=>syncNow(), 500); } else if(n===0) lsSet('migOld', true); }
-    const t=new Date(); setSync('ok','Sinkronizirano '+pad(t.getHours())+':'+pad(t.getMinutes()));
-    if(changed && typeof render==='function' && !document.querySelector('.overlay')) { applyBrand(); render(); }
+    const t=new Date(); setSync('ok',(RT.ok?'Uživo · ':'')+'Sinkronizirano '+pad(t.getHours())+':'+pad(t.getMinutes()));
+    if(changed && typeof render==='function'){ if(document.querySelector('.overlay')) RENDER_PENDING=true; else { applyBrand(); render(); } }
     if(manual) toast(changed?`Sinkronizirano – ${changed} promjena`:'Sve je sinkronizirano');
     return true;
   }catch(e){
@@ -3227,6 +3228,50 @@ async function syncNow(manual){
     return false;
   }finally{ syncing=false; }
 }
+/* ---------- UŽIVO: Supabase Realtime (WebSocket) ----------
+   Čim terenska aplikacija spremi zapis, baza javi ovoj aplikaciji i ona
+   povuče promjene. Ako veza nije moguća, ostaje redovito osvježavanje. */
+var RENDER_PENDING = false;
+var RT = {ws:null, ok:false, ref:0, hb:null, retry:0, t:null, pingT:null};
+function rtUrl(){ return SB.url.replace(/^http/,'ws').replace(/\/$/,'')+'/realtime/v1/websocket?apikey='+encodeURIComponent(SB.key)+'&vsn=1.0.0'; }
+function rtSend(o){ try{ if(RT.ws && RT.ws.readyState===1) RT.ws.send(JSON.stringify(o)); }catch(e){} }
+function rtPing(){ clearTimeout(RT.pingT); RT.pingT=setTimeout(()=>syncNow(), 800); }
+function rtStop(){ clearInterval(RT.hb); RT.hb=null; clearTimeout(RT.t); RT.t=null; RT.ok=false;
+  try{ if(RT.ws){ RT.ws.onclose=null; RT.ws.close(); } }catch(e){} RT.ws=null; }
+function rtRetry(){ if(RT.t) return; const s=Math.min(120, 3*Math.pow(2, Math.min(5, RT.retry++)));
+  RT.t=setTimeout(()=>{ RT.t=null; rtStart(); }, s*1000); }
+function rtStart(){
+  if(typeof WebSocket==='undefined') return;
+  if(typeof AUTH==='undefined' || !AUTH || !AUTH.access_token || !SB.url || !SB.key || !SB.on) return;
+  if(!navigator.onLine) return;
+  if(RT.ws && (RT.ws.readyState===0 || RT.ws.readyState===1)) return;
+  let ws; try{ ws = new WebSocket(rtUrl()); }catch(e){ return; }
+  RT.ws = ws; RT.ok = false;
+  ws.onopen = ()=>{
+    RT.ref = 0;
+    rtSend({topic:'realtime:haccp', event:'phx_join', ref:String(++RT.ref), join_ref:'1',
+      payload:{config:{broadcast:{self:false}, presence:{key:''},
+        postgres_changes:[{event:'*', schema:'public', table:'haccp_zapisi'}]},
+        access_token:AUTH.access_token}});
+    RT.hb = setInterval(()=>{
+      rtSend({topic:'phoenix', event:'heartbeat', payload:{}, ref:String(++RT.ref)});
+      if(typeof AUTH!=='undefined' && AUTH && AUTH.access_token)
+        rtSend({topic:'realtime:haccp', event:'access_token', payload:{access_token:AUTH.access_token}, ref:String(++RT.ref)});
+    }, 25000);
+  };
+  ws.onmessage = ev=>{
+    let m=null; try{ m=JSON.parse(ev.data); }catch(e){ return; }
+    if(m.event==='phx_reply'){
+      if(m.payload && m.payload.status==='ok' && !RT.ok && m.topic!=='phoenix'){ RT.ok=true; RT.retry=0; setSync(syncState, syncMsg==='' ? '' : syncMsg); }
+      return; }
+    if(m.event==='postgres_changes' || m.event==='INSERT' || m.event==='UPDATE' || m.event==='DELETE') rtPing();
+    if(m.event==='phx_error' || m.event==='phx_close'){ RT.ok=false; }
+  };
+  ws.onclose = ()=>{ RT.ok=false; clearInterval(RT.hb); RT.hb=null; if(RT.ws===ws){ RT.ws=null; rtRetry(); } };
+  ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
+}
+function rtKick(){ if(!RT.ok) rtStart(); }
+
 async function migrateOldCloud(){ // vraća broj prenesenih zapisa, -1 ako nije uspjelo
   try{
     const base=SB.url.replace(/\/$/,'')+'/rest/v1/';
@@ -3312,7 +3357,7 @@ async function authFresh(){ // vraća true ako je token valjan (osvježava ga po
 async function authLogout(){
   if(!await ask('Odjava', 'Odjaviti se iz aplikacije? Podaci ostaju spremljeni i sinkronizirani.', 'Odjavi se')) return;
   try{ if(AUTH && navigator.onLine) await fetch(SB.url.replace(/\/$/,'')+'/auth/v1/logout', {method:'POST', headers:{apikey:SB.key, Authorization:'Bearer '+AUTH.access_token}}); }catch(e){}
-  AUTH=null; lsSet('auth', null); closeModal(); showLogin();
+  AUTH=null; lsSet('auth', null); try{ rtStop(); }catch(e){} closeModal(); showLogin();
 }
 function themeToggle(){
   const dark = document.documentElement.dataset.theme==='dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -3555,7 +3600,8 @@ function openModal(eyebrow, title, bodyFn, opt={}){
   ov.addEventListener('mouseup', e=>{ if(ov._down && e.target===ov){ closeModal(); backToVisit(); } });
 }
 function renderBody(){ const b=$('#m-body'); if(!b) return; const st=b.scrollTop; b.innerHTML=M.bodyFn(); b.scrollTop=st; }
-function closeModal(){ const o=$('#m-ov'); if(o){ o.remove(); document.body.style.overflow=''; } }
+function closeModal(){ const o=$('#m-ov'); if(o){ o.remove(); document.body.style.overflow=''; }
+  if(typeof RENDER_PENDING!=='undefined' && RENDER_PENDING){ RENDER_PENDING=false; setTimeout(()=>{ if(!$('#m-ov') && typeof render==='function'){ applyBrand(); render(); } }, 80); } }
 
 function onModalInput(e){
   const el=e.target.closest('[data-b]'); if(!el || el.tagName==='BUTTON') return;
@@ -4827,12 +4873,18 @@ async function init(){
   $('#impFile').addEventListener('change', e=>{ const f=e.target.files[0]; if(f) doImport(f); });
   $('#logoFile').addEventListener('change', e=>{ const f=e.target.files[0]; if(f) loadLogo(f); });
   addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; if(route()==='postavke') render(); });
-  addEventListener('online', ()=>{ if(AUTH) syncNow(); }); document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && AUTH) syncNow(); });
+  addEventListener('online', ()=>{ if(AUTH){ rtStop(); RT.retry=0; syncNow(); } });
+  addEventListener('offline', ()=>{ rtStop(); });
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && AUTH){ RT.retry=0; syncNow(); } });
   updateFootIcons();
   if(!AUTH){ showLogin(); }
   else { render(); setSync('busy','Povezivanje…'); syncNow(); }
   setTimeout(()=>{ if(AUTH) importLocalOld(); }, 800);
-  setInterval(()=>{ if(AUTH) syncNow(); }, 60000);
+  // osvježavanje: svakih 20 s dok je aplikacija otvorena, 60 s u pozadini
+  // (uz "uživo" vezu ovo je samo sigurnosna mreža)
+  let tickN=0;
+  setInterval(()=>{ if(!AUTH) return; tickN++;
+    if(document.visibilityState==='visible' || tickN%3===0) syncNow(); }, 20000);
   if('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW',e));
 }
 document.addEventListener('DOMContentLoaded', init);
