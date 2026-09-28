@@ -2822,7 +2822,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.5.5';
+const APP_VER = '1.5.6';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3961,13 +3961,29 @@ function printDay(date, mode, stroj){
   output(rs.map((r,i)=>docPage(r,i>0)).join(''), 'portrait', `HACCP_dan_${date}${stroj!=='all'?'_'+stroj:''}`, mode);
 }
 function printDocs(t, ym, mode, stroj){ stroj=stroj||AKT; output(monthPages(t, ym, stroj), 'landscape', `HACCP_${t==='all'?'svi':TIP[t].kod}_${ym}${stroj!=='all'?'_'+stroj:''}`, mode); }
+function printYear(t, y, mode, stroj){
+  stroj = stroj || AKT;
+  let html='';
+  const imaZapisa = ym => (t==='all'?DOCS:[t]).some(k=>DB[k].some(r=>(r.date||'').startsWith(ym) && (stroj==='all' || r.stroj===stroj)));
+  for(let m=1; m<=12; m++){
+    const ym = y+'-'+pad(m);
+    if(!imaZapisa(ym)) continue;                         // prazne mjesece preskoči
+    let h = monthPages(t, ym, stroj);
+    if(!h) continue;
+    if(html) h = h.replace('<div class="p-page landscape ', '<div class="p-page landscape p-brk ');   // svaki mjesec na novoj stranici
+    html += h;
+  }
+  output(html, 'landscape', `HACCP_${t==='all'?'svi':TIP[t].kod}_${y}${stroj!=='all'?'_'+stroj:''}`, mode);
+}
 
 /* izbornik ispisa */
 function openPrintMenu(date){
   closeModal();
   const months=[...new Set(DOCS.flatMap(k=>DB[k].map(r=>(r.date||'').slice(0,7))).concat([isoDate().slice(0,7)]))].filter(Boolean).sort().reverse();
-  M={kind:'custom', rec:{d:date||isoDate(), m:isMonthPer(GP.per)?GP.per:isoDate().slice(0,7), t:EV.t||'all', s:AKT},
-     hero:r=>({cls:'done', av:'PDF', name:'Ispis i PDF', main:'Dnevno ili mjesečno', badge:'A4'}), save:()=>false};
+  const years=[...new Set(DOCS.flatMap(k=>DB[k].map(r=>(r.date||'').slice(0,4))).concat([isoDate().slice(0,4)]))].filter(Boolean).sort().reverse();
+  const godZapisa=(y,st)=>DOCS.reduce((n,k)=>n+DB[k].filter(x=>(x.date||'').startsWith(y) && (st==='all'||x.stroj===st)).length,0);
+  M={kind:'custom', rec:{d:date||isoDate(), m:isMonthPer(GP.per)?GP.per:isoDate().slice(0,7), t:EV.t||'all', s:AKT, y:isoDate().slice(0,4), ty:EV.t||'all'},
+     hero:r=>({cls:'done', av:'PDF', name:'Ispis i PDF', main:'Dnevno, mjesečno ili godišnje', badge:'A4'}), save:()=>false};
   openModal('Ispis / PDF','Odaberite razdoblje', ()=>{ const r=M.rec; const n=DOCS.reduce((s,k)=>s+DB[k].filter(x=>x.date===r.d && (r.s==='all'||x.stroj===r.s)).length,0);
     return (multi()?sec('Aparat')+`<div class="grp">${fr('machine','#5856d6','Aparat', vSel('s', [['all','Svi aparati (svaki na svojim stranicama)']].concat(stOpts()), null))}</div>`:'')+sec('Dnevni ispis – svi obrasci jednog dana')+`<div class="grp">
       ${fr('cal','#ff3b30','Datum', vIn('d','date'), n+' zapisa')}
@@ -3975,12 +3991,17 @@ function openPrintMenu(date){
     sec('Mjesečni ispis – tablični pregled')+`<div class="grp">
       ${fr('cal','#af52de','Mjesec', vSel('m', months.map(m=>[m,fMonth(m)]), null))}
       ${fr('list','#007aff','Obrazac', vSel('t', [['all','Svi obrasci']].concat(Object.entries(TIP).map(([k,x])=>[k,x.n])), null))}
-      <div class="fr"><div class="lb"></div><div class="ctl"><button class="btn sm" data-a="pmon">${ic('printer')}Ispis</button><button class="btn sm pri" data-a="pmonPdf">${ic('down')}PDF</button></div></div></div>
-      <div class="hint">„Ispis” otvara prozor pisača (tamo možete odabrati i „Spremi kao PDF”). „PDF” izravno preuzima datoteku.</div>`; });
+      <div class="fr"><div class="lb"></div><div class="ctl"><button class="btn sm" data-a="pmon">${ic('printer')}Ispis</button><button class="btn sm pri" data-a="pmonPdf">${ic('down')}PDF</button></div></div></div>`+
+    sec('Godišnji ispis – cijela godina po mjesecima')+`<div class="grp">
+      ${fr('cal','#34c759','Godina', vSel('y', years.map(y=>[y,y+'.']), null), godZapisa(r.y, r.s)+' zapisa')}
+      ${fr('list','#ff9500','Obrazac', vSel('ty', [['all','Svi obrasci']].concat(Object.entries(TIP).map(([k,x])=>[k,x.n])), null))}
+      <div class="fr"><div class="lb"></div><div class="ctl"><button class="btn sm" data-a="pyear">${ic('printer')}Ispis</button><button class="btn sm pri" data-a="pyearPdf">${ic('down')}PDF</button></div></div></div>
+      <div class="hint">Godišnji ispis slaže sve mjesece jedan za drugim, svaki mjesec na svojoj stranici. Za „Sve obrasce” i više aparata to zna biti stotinjak stranica pa izrada PDF-a traje i do minute.<br>„Ispis” otvara prozor pisača (tamo možete odabrati i „Spremi kao PDF”). „PDF” izravno preuzima datoteku.</div>`; });
   $('#m-ov [data-a="save"]').remove();
   $('#m-body').addEventListener('click', e=>{ const b=e.target.closest('[data-a]'); if(!b) return; const r=M.rec;
     if(b.dataset.a==='pday') printDay(r.d,'',r.s); if(b.dataset.a==='pdayPdf') printDay(r.d,'pdf',r.s);
-    if(b.dataset.a==='pmon') printDocs(r.t, r.m, '', r.s); if(b.dataset.a==='pmonPdf') printDocs(r.t, r.m, 'pdf', r.s); });
+    if(b.dataset.a==='pmon') printDocs(r.t, r.m, '', r.s); if(b.dataset.a==='pmonPdf') printDocs(r.t, r.m, 'pdf', r.s);
+    if(b.dataset.a==='pyear') printYear(r.ty, r.y, '', r.s); if(b.dataset.a==='pyearPdf') printYear(r.ty, r.y, 'pdf', r.s); });
 }
 
 /* ---------- QR naljepnice za aparate ---------- */
