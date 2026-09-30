@@ -491,6 +491,9 @@ body.locked .app{display:none!important}
 .nar-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:7px;vertical-align:middle}
 .row.nar-new{background:rgba(255,59,48,.045)}
 
+.sif{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.3px;color:var(--muted);
+  background:rgba(120,120,128,.14);border-radius:6px;padding:1px 6px;margin-right:6px;vertical-align:1px}
+
 </style>
 </head>
 <body>
@@ -2830,7 +2833,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.6.1';
+const APP_VER = '1.7.0';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti','narudzbe'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3697,7 +3700,7 @@ async function onModalClick(e){
   if(a==='vdoc'){ visitDoc(b.dataset.t); return; }
   if(a==='chip'||a==='tri'){ const cur=getP(r,b.dataset.b); setP(r,b.dataset.b, (a==='tri'&&cur===b.dataset.val)?'':b.dataset.val); renderBody(); renderHero(); return; }
   if(a==='add'){ const l=b.dataset.list;
-    if(M.kol==='narudzbe'){ r.stavke=r.stavke||[]; r.stavke.push({a:'',o:'',pak:'',q:1}); renderBody(); renderHero(); const bb=$('#m-body'); bb.scrollTop=bb.scrollHeight; return; }
+    if(M.kol==='narudzbe'){ r.stavke=r.stavke||[]; r.stavke.push({s:'',a:'',o:'',pak:'',q:1}); renderBody(); renderHero(); const bb=$('#m-body'); bb.scrollTop=bb.scrollHeight; return; }
     const tpl = l==='entries' ? {ccp:r.entries.at(-1)?.ccp||'CCP1', granica:r.entries.at(-1)?.granica||'', sat:nowTime(), vrijednost:'', rezultat:'ok', mjera:''}
       : r.type==='prim' ? {naziv:'',lot:'',rok:'',kolicina:'',temp:'',stanje:'Ispravno',coa:''} : {naziv:'',lot:'',rok:'',kolicina:'',napomena:''};
     r[l].push(tpl); renderBody(); renderHero(); const body=$('#m-body'); body.scrollTop=body.scrollHeight; return; }
@@ -3800,10 +3803,10 @@ const REG = {
             ['Napomena',[['napomena','Napomena','note','textarea']]]],
     cols:[['Naziv','naziv'],['OIB','oib'],['Adresa','adresa'],['Kontakt','kontakt']]},
   proizvodi:{n:'Proizvodi', one:'Proizvod', ic:'tag', c:'#5856d6',
-    title:r=>r.naziv, sub:r=>[r.kategorija,r.dobavljac].filter(Boolean).join(' · '), badge:r=>r.ambalaza||'',
-    groups:[['Osnovno',[['naziv','Naziv','tag'],['kategorija','Kategorija','list'],['dobavljac','Dobavljač','building','select',()=>DB.dobavljaci.map(d=>d.naziv)],['skupina','Skupina potrošača','users'],['ambalaza','Ambalaža','box']]],
+    title:r=>r.naziv, sub:r=>[r.sifra,r.kategorija,r.dobavljac].filter(Boolean).join(' · '), badge:r=>r.ambalaza||'',
+    groups:[['Osnovno',[['naziv','Naziv','tag'],['sifra','Šifra dobavljača','barcode'],['kategorija','Kategorija','list'],['dobavljac','Dobavljač','building','select',()=>DB.dobavljaci.map(d=>d.naziv)],['skupina','Skupina potrošača','users'],['ambalaza','Ambalaža','box']]],
             ['Opis proizvoda (HACCP)',[['rok','Rok trajanja','cal'],['uvjeti','Uvjeti čuvanja','therm'],['alergeni','Alergeni','alert'],['aw','aw vrijednost','drop'],['ph','pH vrijednost','flask'],['namjena','Namjena','user'],['sastav','Sastav','doc','textarea']]]],
-    cols:[['Naziv','naziv'],['Kategorija','kategorija'],['Dobavljač','dobavljac'],['Alergeni','alergeni']]},
+    cols:[['Šifra','sifra'],['Naziv','naziv'],['Kategorija','kategorija'],['Dobavljač','dobavljac'],['Ambalaža','ambalaza']]},
   strojevi:{n:'Vending aparati', one:'Aparat', ic:'machine', c:'#ff9500',
     title:r=>`${r.oznaka||''} · ${r.naziv_lokacije||''}`, sub:r=>[r.model,r.isu?'ISU '+r.isu:'',r.adresa].filter(Boolean).join(' · '), badge:r=>r.status||'',
     groups:[['Aparat',[['oznaka','Oznaka','hash'],['model','Model','machine'],['vrsta','Vrsta','tag'],['serijski_br','Serijski broj','barcode'],['vlasnik','Vlasnik','building'],['status','Status','check','select',()=>['Aktivan','Na servisu','Neaktivan']]]],
@@ -4228,6 +4231,7 @@ const narKom = o => (o.stavke||[]).reduce((s,x)=>s+(+x.q||0),0);
 const narKg  = o => (o.stavke||[]).reduce((s,x)=>s+(+x.q||0)*(+x.pak||0),0);
 const narKgTxt = n => n ? fmtNum(Math.round(n*100)/100, 2)+' kg' : '—';
 const narNaziv = s => s.o ? s.o : s.a;
+const narSif = s => String(s.s||'').trim();
 const narGrupa = s => s.novi ? 'Ručno dodano' : (s.a||'Ostalo');
 const narOtvorene = () => DB.narudzbe.filter(o=>o.status!=='isp' && inAkt(o));
 
@@ -4256,7 +4260,7 @@ const narSort = a => a.slice().sort((x,y)=>(y.date||'').localeCompare(x.date||''
 function narZaNabavu(lista){
   const n = {};
   (lista||narOtvorene()).forEach(o=>(o.stavke||[]).forEach(s=>{
-    const k = narGrupa(s)+'|'+narNaziv(s)+'|'+(+s.pak||0);
+    const k = narGrupa(s)+'|'+narNaziv(s)+'|'+narSif(s)+'|'+(+s.pak||0);
     n[k] = (n[k]||0) + (+s.q||0);
   }));
   return n;
@@ -4268,7 +4272,7 @@ function pgNarudzbe(){
   const nab = narZaNabavu();
   const grupe = [...new Set(Object.keys(nab).map(k=>k.split('|')[0]))].sort((a,b)=>a.localeCompare(b,'hr'));
   const ukKom = Object.values(nab).reduce((a,b)=>a+b,0);
-  const ukKg = Object.entries(nab).reduce((s,[k,q])=>s+q*(+k.split('|')[2]||0),0);
+  const ukKg = Object.entries(nab).reduce((s,[k,q])=>s+q*(+k.split('|')[3]||0),0);
   const dani = [...new Set(sve.map(o=>o.date))];
 
   return `<div class="ph"><div><div class="eyebrow">HACCP</div><h1>Narudžbe robe</h1>
@@ -4287,8 +4291,8 @@ function pgNarudzbe(){
         <div class="sub">Zbroj svih otvorenih narudžbi</div></div>${icoBox('truck','#34c759')}</div>
       ${grupe.length ? grupe.map(g=>`<div class="sec" style="margin:10px 16px 2px">${esc(g)}</div>
         <div class="list">${Object.entries(nab).filter(([k])=>k.split('|')[0]===g).sort((a,b)=>b[1]-a[1]).map(([k,q])=>{
-          const [,nz,p]=k.split('|'); const pk=+p;
-          return `<div class="row"><div class="t"><b>${esc(nz)}</b><span>${pk?'pakiranje '+narKgTxt(pk):'bez težine'}</span></div>
+          const [,nz,sf,p]=k.split('|'); const pk=+p;
+          return `<div class="row"><div class="t"><b>${sf?`<span class="sif">${esc(sf)}</span> `:''}${esc(nz)}</b><span>${pk?'pakiranje '+narKgTxt(pk):'bez težine'}</span></div>
             <div class="r" style="text-align:right"><b>${q} kom</b>${pk?`<div style="font-size:12px;color:var(--green);font-weight:600">${narKgTxt(q*pk)}</div>`:''}</div></div>`;
         }).join('')}</div>`).join('')
         + `<div class="sec" style="margin:12px 16px 2px">Ukupno</div>
@@ -4345,6 +4349,7 @@ function openNarudzba(id){
     sec('Stavke', `<button type="button" class="btn sm ghost" data-a="add" data-list="stavke">${ic('plus')}Dodaj</button>`)+
     `<div class="grp">${(r.stavke||[]).length ? r.stavke.map((s,i)=>`
       <div class="itm"><div class="itm-h"><b>Stavka ${i+1}</b><button type="button" class="btn sm dan" data-a="rm" data-list="stavke" data-i="${i}">${ic('trash')}</button></div>
+        ${fr('barcode','#8e8e93','Šifra dobavljača', vIn(`stavke.${i}.s`))}
         ${fr('tag','#5856d6','Artikl', vIn(`stavke.${i}.a`))}
         ${fr('tag','#af52de','Okus / vrsta', vIn(`stavke.${i}.o`))}
         ${fr('box','#ff9500','Pakiranje (kg)', vIn(`stavke.${i}.pak`,'number','step="0.01" min="0"'))}
@@ -4370,10 +4375,10 @@ function openNarudzba(id){
 
 /* ---------- ispis / PDF ---------- */
 function narTablica(o){
-  return pTable(['Artikl','Okus / vrsta','Pakiranje','Komada','Ukupno'],
-    (o.stavke||[]).map(s=>[s.a||'', s.o||'', (+s.pak?narKgTxt(+s.pak):'bez težine'), String(s.q||''),
+  return pTable(['Šifra','Artikl','Okus / vrsta','Pakiranje','Komada','Ukupno'],
+    (o.stavke||[]).map(s=>[s.s||'', s.a||'', s.o||'', (+s.pak?narKgTxt(+s.pak):'bez težine'), String(s.q||''),
       (+s.pak? narKgTxt((+s.q||0)*(+s.pak)) : '—')])
-    .concat([[C('UKUPNO','ok'), '', '', C(String(narKom(o)),'ok'), C(narKgTxt(narKg(o)),'ok')]]));
+    .concat([[C('UKUPNO','ok'), '', '', '', C(String(narKom(o)),'ok'), C(narKgTxt(narKg(o)),'ok')]]));
 }
 function printNarudzba(o, mode){
   const p = DB.postavke;
@@ -4388,33 +4393,33 @@ function printNabava(mode){
   const nab = narZaNabavu();
   const keys = Object.keys(nab).sort();
   if(!keys.length){ toast('Nema otvorenih narudžbi','err'); return; }
-  const rows = keys.map(k=>{ const [g,nz,p]=k.split('|'); const pk=+p, q=nab[k];
-    return [g, nz===g?'':nz, pk?narKgTxt(pk):'bez težine', String(q), pk?narKgTxt(q*pk):'—']; });
+  const rows = keys.map(k=>{ const [g,nz,sf,p]=k.split('|'); const pk=+p, q=nab[k];
+    return [sf, g, nz===g?'':nz, pk?narKgTxt(pk):'bez težine', String(q), pk?narKgTxt(q*pk):'—']; });
   const ukKom = Object.values(nab).reduce((a,b)=>a+b,0);
-  const ukKg = keys.reduce((s,k)=>s+nab[k]*(+k.split('|')[2]||0),0);
-  rows.push([C('UKUPNO','ok'),'','',C(String(ukKom),'ok'),C(narKgTxt(ukKg),'ok')]);
+  const ukKg = keys.reduce((s,k)=>s+nab[k]*(+k.split('|')[3]||0),0);
+  rows.push([C('UKUPNO','ok'),'','','',C(String(ukKom),'ok'),C(narKgTxt(ukKg),'ok')]);
   const html = `<div class="p-page portrait">${pHead('Popis za nabavu', 'Zbroj svih otvorenih narudžbi · '+fDateLong(isoDate()))}
     <div class="p-meta">Otvorenih narudžbi: ${narOtvorene().length} · ${esc(aktNaziv())}</div>
-    ${pTable(['Artikl','Okus / vrsta','Pakiranje','Komada','Ukupno'], rows)}
+    ${pTable(['Šifra','Artikl','Okus / vrsta','Pakiranje','Komada','Ukupno'], rows)}
     <div class="p-sign"><div>Sastavio</div><div>Odobrio</div><div>Odgovorna osoba: ${esc(DB.postavke.odg_ime||'')}</div></div>${pFoot()}</div>`;
   output(html, 'portrait', `Za_nabavu_${isoDate()}`, mode);
 }
 
 /* ---------- Excel ---------- */
 function xlsNarudzba(o){
-  const rows = [['Artikl','Okus / vrsta','Pakiranje (kg)','Komada','Ukupno (kg)']];
-  (o.stavke||[]).forEach(s=>rows.push([s.a||'', s.o||'', (+s.pak||''), (+s.q||0), (+s.pak? +((+s.q||0)*(+s.pak)).toFixed(2) : '')]));
-  rows.push(['UKUPNO','','',narKom(o), +narKg(o).toFixed(2)]);
+  const rows = [['Šifra','Artikl','Okus / vrsta','Pakiranje (kg)','Komada','Ukupno (kg)']];
+  (o.stavke||[]).forEach(s=>rows.push([s.s||'', s.a||'', s.o||'', (+s.pak||''), (+s.q||0), (+s.pak? +((+s.q||0)*(+s.pak)).toFixed(2) : '')]));
+  rows.push(['UKUPNO','','','',narKom(o), +narKg(o).toFixed(2)]);
   saveXlsx('Narudžba', `Narudzba_${o.stroj||'opcenito'}_${o.date}.xlsx`, rows);
 }
 function xlsNabava(){
   const nab = narZaNabavu(); const keys = Object.keys(nab).sort();
   if(!keys.length){ toast('Nema otvorenih narudžbi','err'); return; }
-  const rows = [['Artikl','Okus / vrsta','Pakiranje (kg)','Komada','Ukupno (kg)']];
-  keys.forEach(k=>{ const [g,nz,p]=k.split('|'); const pk=+p, q=nab[k];
-    rows.push([g, nz===g?'':nz, pk||'', q, pk? +(q*pk).toFixed(2) : '']); });
-  rows.push(['UKUPNO','','', Object.values(nab).reduce((a,b)=>a+b,0),
-    +keys.reduce((s,k)=>s+nab[k]*(+k.split('|')[2]||0),0).toFixed(2)]);
+  const rows = [['Šifra','Artikl','Okus / vrsta','Pakiranje (kg)','Komada','Ukupno (kg)']];
+  keys.forEach(k=>{ const [g,nz,sf,p]=k.split('|'); const pk=+p, q=nab[k];
+    rows.push([sf, g, nz===g?'':nz, pk||'', q, pk? +(q*pk).toFixed(2) : '']); });
+  rows.push(['UKUPNO','','','', Object.values(nab).reduce((a,b)=>a+b,0),
+    +keys.reduce((s,k)=>s+nab[k]*(+k.split('|')[3]||0),0).toFixed(2)]);
   saveXlsx('Za nabavu', `Za_nabavu_${isoDate()}.xlsx`, rows);
 }
 
