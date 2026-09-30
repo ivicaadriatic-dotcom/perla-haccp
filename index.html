@@ -46,7 +46,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 button,input,select,textarea{font:inherit;color:inherit}
 svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .hidden{display:none!important}
-.show-m{display:none}
+.show-m{display:none!important}
 .seg.scroll{flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none}
 .seg.scroll::-webkit-scrollbar{display:none}
 .seg.scroll button{flex:none}
@@ -453,7 +453,7 @@ body.locked .app{display:none!important}
   .chart-box{height:220px}
   .search{max-width:none}
   .hide-m{display:none!important}
-  .show-m{display:flex}
+  .show-m{display:flex!important}
   .ra-b{width:32px;height:32px}
   .ra{gap:5px;margin-left:4px}
   .ph .actions{width:100%}
@@ -2830,7 +2830,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.6.0';
+const APP_VER = '1.6.1';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti','narudzbe'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
