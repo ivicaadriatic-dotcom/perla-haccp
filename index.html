@@ -494,6 +494,19 @@ body.locked .app{display:none!important}
 .sif{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.3px;color:var(--muted);
   background:rgba(120,120,128,.14);border-radius:6px;padding:1px 6px;margin-right:6px;vertical-align:1px}
 
+/* ---- traka: neposlani unosi ---- */
+.pend{position:fixed;z-index:90;right:22px;top:calc(14px + var(--safe-t));
+  display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 28px));
+  padding:11px 12px 11px 14px;border-radius:14px;
+  background:var(--glass);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
+  border:1px solid rgba(255,149,0,.45);box-shadow:0 10px 34px rgba(0,0,0,.18)}
+.pend svg{width:20px;height:20px;flex:none;stroke:var(--orange);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.pend span{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.pend b{font-size:14px}
+.pend small{color:var(--muted);font-size:12px}
+.pend .btn{flex:none}
+@media (max-width:900px){ .pend{top:calc(62px + var(--safe-t));left:12px;right:12px;transform:none;max-width:none} }
+
 </style>
 </head>
 <body>
@@ -2833,7 +2846,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.7.0';
+const APP_VER = '1.7.1';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti','narudzbe'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -2917,16 +2930,41 @@ function upsert(kol, rec){
   const a = DB[kol]; const i = a.findIndex(x=>String(x.id)===rec.id);
   if(i>=0) a[i]=rec; else a.push(rec);
   DIRTY[kol+'|'+rec.id] = Date.now(); delete DELETED[kol+'|'+rec.id];
-  saveDB(); scheduleSync();
+  saveDB(); scheduleSync(); updatePending();
   return rec;
 }
 function removeRec(kol, id){
   id = String(id);
   DB[kol] = DB[kol].filter(x=>String(x.id)!==id);
   DELETED[kol+'|'+id] = Date.now(); delete DIRTY[kol+'|'+id];
-  saveDB(); scheduleSync();
+  saveDB(); scheduleSync(); updatePending();
 }
-function setObj(name, val){ DB[name]=val; DIRTY['obj|'+name]=Date.now(); saveDB(); scheduleSync(); }
+/* ---------- traka: unosi koji čekaju slanje ---------- */
+let DIRTY_SINCE = 0;
+const pendN = () => Object.keys(DIRTY).length + Object.keys(DELETED).length;
+function pendTxt(n){ const z=n%100, j=n%10;
+  if(z>=11&&z<=14) return n+' unosa čeka slanje';
+  if(j===1) return n+' unos čeka slanje';
+  if(j>=2&&j<=4) return n+' unosa čekaju slanje';
+  return n+' unosa čeka slanje'; }
+function updatePending(){
+  const n = pendN(), el = document.getElementById('pend');
+  if(!n){ DIRTY_SINCE = 0; if(el) el.remove(); return; }
+  if(!DIRTY_SINCE) DIRTY_SINCE = Date.now();
+  const dugo = Date.now() - DIRTY_SINCE > 30000;
+  const lose = syncState === 'err' || syncState === 'local';
+  if(!dugo && !lose){ if(el) el.remove(); return; }
+  let e = el;
+  if(!e){
+    e = document.createElement('div'); e.id='pend'; e.className='pend';
+    e.addEventListener('click', ev=>{ if(ev.target.closest('[data-a="send"]')) syncNow(true); });
+    document.body.appendChild(e);
+  }
+  e.innerHTML = `${ic('up')}<span><b>${pendTxt(n)}</b><small>${lose?'Sinkronizacija ne prolazi – spremljeno je na ovom uređaju':'Spremljeno je na ovom uređaju, još nije u oblaku'}</small></span>`+
+    `<button class="btn sm pri" data-a="send">Pošalji sada</button>`;
+}
+
+function setObj(name, val){ DB[name]=val; DIRTY['obj|'+name]=Date.now(); saveDB(); scheduleSync(); updatePending(); }
 function byId(kol, id){ return DB[kol].find(x=>String(x.id)===String(id)); }
 
 /* ---------- toast & dijalozi ---------- */
@@ -3182,7 +3220,7 @@ let SB = lsGet('sb', {url:SB_DEFAULT_URL, key:SB_DEFAULT_KEY, on:true});
 if(!SB.url) SB.url=SB_DEFAULT_URL; if(!SB.key) SB.key=SB_DEFAULT_KEY;
 let syncTimer = null, syncing = false, syncState = 'local', syncMsg = 'Samo na ovom uređaju';
 function sbHeaders(extra){ return Object.assign({apikey:SB.key, Authorization:'Bearer '+((typeof AUTH!=='undefined'&&AUTH&&AUTH.access_token)||SB.key), 'Content-Type':'application/json'}, extra||{}); }
-function setSync(state, msg){ syncState=state; syncMsg=msg; $$('.sync').forEach(el=>{ el.innerHTML=`<span class="dot ${state==='ok'?'ok':state==='busy'?'busy':state==='err'?'err':''}"></span><span>${esc(msg)}</span>`; }); }
+function setSync(state, msg){ syncState=state; syncMsg=msg; setTimeout(updatePending,0); $$('.sync').forEach(el=>{ el.innerHTML=`<span class="dot ${state==='ok'?'ok':state==='busy'?'busy':state==='err'?'err':''}"></span><span>${esc(msg)}</span>`; }); }
 function scheduleSync(){ if(typeof AUTH==='undefined' || !AUTH || !AUTH.refresh_token) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>syncNow(), 1500); }
 function recFor(key){
   const [kol,id]=[key.slice(0,key.indexOf('|')), key.slice(key.indexOf('|')+1)];
@@ -5186,6 +5224,7 @@ async function init(){
   // osvježavanje: svakih 20 s dok je aplikacija otvorena, 60 s u pozadini
   // (uz "uživo" vezu ovo je samo sigurnosna mreža)
   let tickN=0;
+  setInterval(updatePending, 10000);          // provjeri čekaju li unosi na slanje
   setInterval(()=>{ if(!AUTH) return; tickN++;
     if(document.visibilityState==='visible' || tickN%3===0) syncNow(); }, 20000);
   if('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW',e));
