@@ -2846,7 +2846,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.7.1';
+const APP_VER = '1.7.2';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti','narudzbe'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3419,6 +3419,14 @@ const TEREN_URL = 'https://ivicaadriatic-dotcom.github.io/perla-teren/';
 const jeAdmin = e => ADMINI.includes(String(e||'').trim().toLowerCase());
 function preusmjeriTeren(){
   if(!AUTH || jeAdmin(AUTH.email)) return false;
+  // izlaz iz petlje: .../perla-haccp/#/odjava  → odjavi i pokaži prijavu
+  if(/odjava/i.test(location.hash || '')){
+    AUTH = null; lsSet('auth', null); lsSet('pendingVisit', null);
+    history.replaceState(null, '', location.pathname);
+    applyTheme(); applyWidth(); buildShell();
+    showLogin('Odjavljeni ste s prethodnog računa. Prijavite se svojim e-mailom.');
+    return true;
+  }
   const pv = lsGet('pendingVisit', null);
   const a = ((typeof routeParam==='function') ? routeParam() : null) || (pv && Date.now()-pv.ts < 30*60000 ? pv.o : null);
   lsSet('pendingVisit', null);
