@@ -2846,7 +2846,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.7.2';
+const APP_VER = '1.7.3';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti','narudzbe'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -3218,7 +3218,15 @@ function exportBackup(){
 /* ---------- sinkronizacija (Supabase, tablica haccp_zapisi) ---------- */
 let SB = lsGet('sb', {url:SB_DEFAULT_URL, key:SB_DEFAULT_KEY, on:true});
 if(!SB.url) SB.url=SB_DEFAULT_URL; if(!SB.key) SB.key=SB_DEFAULT_KEY;
-let syncTimer = null, syncing = false, syncState = 'local', syncMsg = 'Samo na ovom uređaju';
+let syncTimer = null, syncing = false, syncStart = 0, syncState = 'local', syncMsg = 'Samo na ovom uređaju';
+/* fetch koji ne može visjeti zauvijek – prekida se nakon zadanog vremena */
+async function fetchT(url, opt={}, ms=20000){
+  if(typeof AbortController === 'undefined') return fetch(url, opt);
+  const c = new AbortController(); const t = setTimeout(()=>c.abort(), ms);
+  try{ return await fetch(url, Object.assign({}, opt, {signal:c.signal})); }
+  catch(e){ if(e && e.name==='AbortError') throw new Error('Mreža ne odgovara (prekinuto nakon '+Math.round(ms/1000)+' s)'); throw e; }
+  finally{ clearTimeout(t); }
+}
 function sbHeaders(extra){ return Object.assign({apikey:SB.key, Authorization:'Bearer '+((typeof AUTH!=='undefined'&&AUTH&&AUTH.access_token)||SB.key), 'Content-Type':'application/json'}, extra||{}); }
 function setSync(state, msg){ syncState=state; syncMsg=msg; setTimeout(updatePending,0); $$('.sync').forEach(el=>{ el.innerHTML=`<span class="dot ${state==='ok'?'ok':state==='busy'?'busy':state==='err'?'err':''}"></span><span>${esc(msg)}</span>`; }); }
 function scheduleSync(){ if(typeof AUTH==='undefined' || !AUTH || !AUTH.refresh_token) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>syncNow(), 1500); }
@@ -3229,9 +3237,14 @@ function recFor(key){
 }
 async function syncNow(manual){
   if(typeof AUTH==='undefined' || !AUTH || !AUTH.refresh_token || !SB.url || !SB.key){ setSync('local','Samo na ovom uređaju'); return false; }
-  if(syncing) return; if(!navigator.onLine){ setSync('err','Izvan mreže – čeka'); return false; }
+  if(syncing){
+    if(Date.now() - syncStart < 60000) return;                  // još traje, u redu
+    syncing = false;                                            // zaglavilo se – kreni ispočetka
+    console.warn('Sinkronizacija je visjela, prekinuta nakon 60 s');
+  }
+  if(!navigator.onLine){ setSync('err','Izvan mreže – čeka'); return false; }
   try{ rtKick(); }catch(e){}
-  syncing=true; setSync('busy','Sinkronizacija…');
+  syncing=true; syncStart=Date.now(); setSync('busy','Sinkronizacija…');
   try{
     if(!await authFresh()) throw new Error(navigator.onLine?'Prijava nije valjana':'Izvan mreže');
     const base = SB.url.replace(/\/$/,'')+'/rest/v1/haccp_zapisi';
@@ -3240,7 +3253,7 @@ async function syncNow(manual){
     const rows = Object.keys(snap).map(recFor).filter(Boolean)
       .concat(Object.keys(snapDel).map(k=>({id:k, kol:k.split('|')[0], data:null, deleted:true})));
     for(let i=0;i<rows.length;i+=200){
-      const res = await fetch(base, {method:'POST', headers:sbHeaders({Prefer:'resolution=merge-duplicates,return=minimal'}), body:JSON.stringify(rows.slice(i,i+200))});
+      const res = await fetchT(base, {method:'POST', headers:sbHeaders({Prefer:'resolution=merge-duplicates,return=minimal'}), body:JSON.stringify(rows.slice(i,i+200))});
       if(!res.ok) throw new Error('Slanje: '+res.status+' '+(await res.text()).slice(0,160));
     }
     Object.keys(snap).forEach(k=>{ if(DIRTY[k]===snap[k]) delete DIRTY[k]; });
@@ -3249,7 +3262,7 @@ async function syncNow(manual){
     let last = lsGet('lastPull', '1970-01-01T00:00:00Z'), changed=0;
     const since = new Date(new Date(last).getTime()-5000).toISOString();
     for(let off=0;;off+=1000){
-      const res = await fetch(`${base}?select=id,kol,data,deleted,updated_at&updated_at=gt.${encodeURIComponent(since)}&order=updated_at.asc&limit=1000&offset=${off}`, {headers:sbHeaders()});
+      const res = await fetchT(`${base}?select=id,kol,data,deleted,updated_at&updated_at=gt.${encodeURIComponent(since)}&order=updated_at.asc&limit=1000&offset=${off}`, {headers:sbHeaders()});
       if(!res.ok) throw new Error('Preuzimanje: '+res.status+' '+(await res.text()).slice(0,160));
       const arr = await res.json();
       arr.forEach(row=>{
@@ -3446,7 +3459,7 @@ function authMsg(j, status){
   return m || ('Greška '+status);
 }
 async function authCall(grant, body){
-  const res = await fetch(SB.url.replace(/\/$/,'')+'/auth/v1/token?grant_type='+grant, {method:'POST', headers:{apikey:SB.key, 'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const res = await fetchT(SB.url.replace(/\/$/,'')+'/auth/v1/token?grant_type='+grant, {method:'POST', headers:{apikey:SB.key, 'Content-Type':'application/json'}, body:JSON.stringify(body)}, 15000);
   let j=null; try{ j=await res.json(); }catch(e){}
   if(!res.ok){ const e=new Error(authMsg(j, res.status)); e.status=res.status; throw e; }
   return j;
