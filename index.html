@@ -2846,7 +2846,7 @@ var qrcode = function() {
 /* =========================================================
    PERLA NOTTE HACCP — jezgra: podaci, pomoćne funkcije, sinkronizacija
    ========================================================= */
-const APP_VER = '1.7.3';
+const APP_VER = '1.7.4';
 const LS = 'pnh_';
 const KOL = ['temp','cdez','dkv','ccp','prim','pun','prihodi','djelatnici','dobavljaci','proizvodi','strojevi','plan_cdez','posjeti','narudzbe'];
 const DOCS = ['temp','cdez','dkv','ccp','prim','pun'];
@@ -4290,9 +4290,31 @@ const narKom = o => (o.stavke||[]).reduce((s,x)=>s+(+x.q||0),0);
 const narKg  = o => (o.stavke||[]).reduce((s,x)=>s+(+x.q||0)*(+x.pak||0),0);
 const narKgTxt = n => n ? fmtNum(Math.round(n*100)/100, 2)+' kg' : '—';
 const narNaziv = s => s.o ? s.o : s.a;
-const narSif = s => String(s.s||'').trim();
+/* šifra dobavljača: iz narudžbe, a ako je nema – iz registra proizvoda po nazivu */
+function sifPoNazivu(naziv){
+  const t = String(naziv||'').trim().toLowerCase();
+  if(!t || !DB.proizvodi) return '';
+  const p = DB.proizvodi.find(x=>String(x.naziv||'').trim().toLowerCase()===t && String(x.sifra||'').trim());
+  return p ? String(p.sifra).trim() : '';
+}
+const narSif = s => String(s.s||'').trim() || sifPoNazivu(s.o) || sifPoNazivu(s.a);
+/* upiše nađene šifre u zapis; vraća true ako je nešto promijenjeno */
+function narPopuniSifre(r){
+  let ch = false;
+  (r.stavke||[]).forEach(s=>{ if(!String(s.s||'').trim()){ const v=narSif(s); if(v){ s.s=v; ch=true; } } });
+  return ch;
+}
 const narGrupa = s => s.novi ? 'Ručno dodano' : (s.a||'Ostalo');
 const narOtvorene = () => DB.narudzbe.filter(o=>o.status!=='isp' && inAkt(o));
+/* ime naručitelja: iz registra djelatnika po e-mailu, pa tek onda ono što je stiglo s terena */
+function narOsoba(o){
+  const e = String(o.korisnik||'').trim().toLowerCase();
+  if(e && DB.djelatnici){
+    const d = DB.djelatnici.find(x=>String(x.email||'').trim().toLowerCase()===e);
+    if(d){ const n=[d.ime,d.prezime].filter(Boolean).join(' '); if(n) return n; }
+  }
+  return o.djelatnik||'—';
+}
 
 /* ---------- oznaka „nije otvoreno” (po uređaju, ne sinkronizira se) ---------- */
 function narVidjene(){ const v=lsGet('narSeen',[]); return Array.isArray(v)?v:[]; }
@@ -4370,7 +4392,7 @@ function narRow(o){
   const nova = narNeprocitana(o);
   return `<div class="row${nova?' nar-new':''}" onclick="openNarudzba('${o.id}')">${icoBox('box', st==='nova'?'#ff9500':st==='nar'?'#007aff':'#34c759')}
     <div class="t"><b>${nova?'<i class="nar-dot"></i>':''}${esc(o.stroj||'Općenito / skladište')}${o.stroj?' · '+esc(strojLokacija(o.stroj)):''}</b>
-      <span>${esc(String(o.time||'').slice(0,5))} · ${esc(o.djelatnik||'—')} · ${narStavki((o.stavke||[]).length)} · ${narKgTxt(narKg(o))}</span></div>
+      <span>${esc(String(o.time||'').slice(0,5))} · ${esc(narOsoba(o))} · ${narStavki((o.stavke||[]).length)} · ${narKgTxt(narKg(o))}</span></div>
     <div class="r"><span class="pill ${NAR_PILL[st]}">${NAR_ST[st]}</span></div>
     ${rowActs(`openNarudzba('${o.id}')`, `delRec('narudzbe','${o.id}','narudžbu ${esc(o.stroj||'')}')`)}</div>`;
 }
@@ -4386,6 +4408,7 @@ function openNarudzba(id){
        djelatnik:DB.postavke.odg_ime||'', status:'nova', napomena:'', stavke:[], created:Date.now()}
     : clone(byId('narudzbe', id));
   if(!rec) return;
+  if(!nova && narPopuniSifre(rec)) upsert('narudzbe', rec);   // šifre dopunjene iz registra proizvoda
   M = {kind:'custom', kol:'narudzbe', rec, isNew:nova, lista:'stavke',
     hero:r=>({cls:NAR_PILL[r.status]||'partial', av:'NAR', name:r.stroj||'Općenito / skladište',
               main:narStavki((r.stavke||[]).length)+' · '+narKgTxt(narKg(r)), badge:NAR_ST[r.status]||'Nova'}),
@@ -4435,14 +4458,14 @@ function openNarudzba(id){
 /* ---------- ispis / PDF ---------- */
 function narTablica(o){
   return pTable(['Šifra','Artikl','Okus / vrsta','Pakiranje','Komada','Ukupno'],
-    (o.stavke||[]).map(s=>[s.s||'', s.a||'', s.o||'', (+s.pak?narKgTxt(+s.pak):'bez težine'), String(s.q||''),
+    (o.stavke||[]).map(s=>[narSif(s), s.a||'', s.o||'', (+s.pak?narKgTxt(+s.pak):'bez težine'), String(s.q||''),
       (+s.pak? narKgTxt((+s.q||0)*(+s.pak)) : '—')])
     .concat([[C('UKUPNO','ok'), '', '', '', C(String(narKom(o)),'ok'), C(narKgTxt(narKg(o)),'ok')]]));
 }
 function printNarudzba(o, mode){
   const p = DB.postavke;
   const html = `<div class="p-page portrait">${pHead('Narudžba robe', (o.stroj?strojLabel(o.stroj)+' · ':'')+fDateLong(o.date))}
-    <div class="p-meta">Datum: ${fDate(o.date)} u ${esc(String(o.time||'').slice(0,5))} · Naručio: ${esc(o.djelatnik||'—')} · Status: ${NAR_ST[o.status]||'Nova'} · Stavki: ${(o.stavke||[]).length}</div>
+    <div class="p-meta">Datum: ${fDate(o.date)} u ${esc(String(o.time||'').slice(0,5))} · Naručio: ${esc(narOsoba(o))} · Status: ${NAR_ST[o.status]||'Nova'} · Stavki: ${(o.stavke||[]).length}</div>
     ${narTablica(o)}
     ${o.napomena?`<div class="p-box"><b>Napomena s terena:</b> ${esc(o.napomena)}</div>`:''}
     <div class="p-sign"><div>Naručio</div><div>Odobrio</div><div>Odgovorna osoba: ${esc(p.odg_ime||'')}</div></div>${pFoot()}</div>`;
@@ -4467,7 +4490,7 @@ function printNabava(mode){
 /* ---------- Excel ---------- */
 function xlsNarudzba(o){
   const rows = [['Šifra','Artikl','Okus / vrsta','Pakiranje (kg)','Komada','Ukupno (kg)']];
-  (o.stavke||[]).forEach(s=>rows.push([s.s||'', s.a||'', s.o||'', (+s.pak||''), (+s.q||0), (+s.pak? +((+s.q||0)*(+s.pak)).toFixed(2) : '')]));
+  (o.stavke||[]).forEach(s=>rows.push([narSif(s), s.a||'', s.o||'', (+s.pak||''), (+s.q||0), (+s.pak? +((+s.q||0)*(+s.pak)).toFixed(2) : '')]));
   rows.push(['UKUPNO','','','',narKom(o), +narKg(o).toFixed(2)]);
   saveXlsx('Narudžba', `Narudzba_${o.stroj||'opcenito'}_${o.date}.xlsx`, rows);
 }
